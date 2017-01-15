@@ -115,6 +115,7 @@ public class TreeData {
                             continue;
                         }
                         if (!skipIt) {
+                            // tell the loop that you found something
                             foundMatch = true;
                             int id = getNewId();
                             tempMap = new LinkedHashMap<String, Object>();
@@ -127,6 +128,7 @@ public class TreeData {
                         }
                     } //end for walk of line elements
                     if (skipIt == true) {
+                        //nothing matched so pop the stack in hopes of finding a match
                         nameStack.pop();
                     }
                 } // end while
