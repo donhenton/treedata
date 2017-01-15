@@ -12,10 +12,9 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
+import java.util.Stack;
 import org.apache.commons.io.FileUtils;
-
 import org.json.simple.JSONValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,6 +22,7 @@ import org.slf4j.LoggerFactory;
 public class TreeData {
 
     private static final Logger LOG = LoggerFactory.getLogger(TreeData.class);
+    private int idCounter = 0;
 
     /**
      * convert a classpath reference to a file on the drive system
@@ -45,11 +45,16 @@ public class TreeData {
         }
     }
 
+    private int getNewId() {
+        idCounter++;
+        return idCounter;
+    }
+
     public void doWork() {
         try {
             //proper usage pattern: java <filename> <delimiter>
-            String inputFile = "/taxonomy.txt";
-            String delimiter = ">";
+            String inputFile = "/taxonomy_1.csv";
+            String delimiter = ",";
 
             File f = convertClassPathToFileRef(inputFile);
 
@@ -57,12 +62,11 @@ public class TreeData {
             String catName;
 
             //main data structure for storage
-            Map<String, Object> flareMap = new LinkedHashMap<String, Object>();
-            flareMap.put("name", "flare");
-            flareMap.put("children", new ArrayList<Object>());
-
+            Map<String, Object> mainMap = new LinkedHashMap<String, Object>();
+            Stack<String> nameStack = new Stack<String>();
+            int lineCount = 0;
             String[] curString;
-            Map<String, Object> curMap, tempMap;
+            LinkedHashMap<String, Object> curMap, tempMap;
 
             while ((catName = br.readLine()) != null) {
                 catName = catName.trim();
@@ -72,91 +76,102 @@ public class TreeData {
                 }
 
                 curString = catName.split(delimiter);
-
-                //if the category is not found in map, create a new path
-                if ((tempMap = findName(flareMap, curString[0])) == null) {
-                    int i = 0;
-                    tempMap = flareMap;
-                    //create nodes for each subcategory in string
-                    while (i < curString.length) {
-                        tempMap = createNode(tempMap, curString[i++]);
-                    }
-                } else {
-                    //otherwise, it will be an existing category name in path,
-                    //iterate until last location and create nodes for subcategories
-                    int i = 0;
-                    tempMap = flareMap;
-                    while (i < curString.length
-                            && (curMap = findName(tempMap, curString[i])) != null) {
-                        i++;
-                        tempMap = curMap;
-                    }
-                    while (i < curString.length) {
-                        tempMap = createNode(tempMap, curString[i++]);
-                    }
+                if (lineCount == 0) {
+                    //start the ball rolling
+                    lineCount++;
+                    int id = getNewId();
+                    curMap = new LinkedHashMap<String, Object>();
+                    curMap.put("name", cleanText(curString[0]));
+                    curMap.put("uuid", id);
+                    curMap.put("children", new ArrayList<Object>());
+                    mainMap.put("" + id, curMap);
+                    nameStack.push("" + id);
+                    continue;
                 }
-            }
+
+                boolean skipIt = true;
+                boolean foundMatch = false;
+                while (!foundMatch) {
+                    LinkedHashMap<String, Object> topParent = null;
+                    if (nameStack.size() > 0) {
+                        topParent
+                                = (LinkedHashMap<String, Object>) mainMap.get(nameStack.peek());
+                    } else {
+                        curMap = new LinkedHashMap<String, Object>();
+                        int id = getNewId();
+                        curMap.put("name", cleanText(curString[0]));
+                        curMap.put("uuid", id);
+                        curMap.put("children", new ArrayList<Object>());
+                        mainMap.put("" + id, curMap);
+                        nameStack.push("" + id);
+                        topParent = curMap;
+                    }
+
+                    for (String currentElem : curString) {
+                        //get to the place that has the item on the top of the stack
+                        if (currentElem.equals((String) topParent.get("name")) && skipIt) {
+                            skipIt = false;
+
+                            continue;
+                        }
+                        if (!skipIt) {
+                            foundMatch = true;
+                            int id = getNewId();
+                            tempMap = new LinkedHashMap<String, Object>();
+                            tempMap.put("name", cleanText(currentElem));
+                            tempMap.put("uuid", id);
+                            tempMap.put("children", new ArrayList<Object>());
+                            mainMap.put("" + id, tempMap);
+                            nameStack.push("" + id);
+                            ((ArrayList<Object>) topParent.get("children")).add(tempMap);
+                        }
+                    } //end for walk of line elements
+                    if (skipIt == true) {
+                        nameStack.pop();
+                    }
+                } // end while
+                LOG.debug("finished Line " + lineCount);
+                lineCount++;
+                //if (lineCount > 100) {
+               //     break;
+               // }
+            }//end loop for lines
 
             br.close();
-            String jsonString = JSONValue.toJSONString(flareMap);
 
-            //default output filename: flare.json -- modify if necessary
+            for (String t : mainMap.keySet()) {
+                Map item = ((Map) mainMap.get(t));
+                ArrayList<Object> children
+                        = (ArrayList<Object>) item.get("children");
+                boolean has_children = false;
+                if (children != null && children.size() > 0) {
+                    has_children = true;
+                }
+                item.put("has_children", has_children);
+            }
+
+            String jsonString = JSONValue.toJSONString(mainMap);
+
+//            //default output filename: flare.json -- modify if necessary
             FileWriter writer = new FileWriter("flare.json");
             writer.write(jsonString);
             writer.close();
 
-            LOG.info(jsonString);
+            // LOG.info(jsonString);
         } catch (Exception e) {
-            LOG.error("Error! Correct usage: <filename> <delimiter>",e);
-             
+            LOG.error("Main Error " + e.getMessage(), e);
+
         }
+    }
+
+    private String cleanText(String t) {
+        String res = t.replaceAll("\"", "");
+        res = res.trim();
+        return res;
     }
 
     public static void main(String[] args) {
         (new TreeData()).doWork();
     }
 
-    /**
-     * Creates a new node for a category not already in the map.
-     *
-     * @param current the current map to add to
-     * @param in the new category name to be added
-     * @return newmap	the new node created
-     */
-    private   Map<String, Object> createNode(Map<String, Object> current,
-            String in) {
-        Map<String, Object> newMap = new LinkedHashMap<String, Object>();
-        newMap.put("name", in);
-
-        if (current.containsKey("children")) {
-            ((List<Map<String, Object>>) current.get("children")).add(newMap);
-        } else {
-            //add new subcategory if it does not already exist
-            current.put("children", new ArrayList<Object>());
-            ((List<Map<String, Object>>) current.get("children")).add(newMap);
-        }
-
-        return newMap;
-    }
-
-    /**
-     * Sequentially searches through the current map for input string.
-     *
-     * @param current the current map to search through
-     * @param in the search string
-     * @return the node requested if found; null otherwise
-     */
-    private Map<String, Object> findName(Map<String, Object> current,
-            String in) {
-        if (current.containsKey("children")) {
-            List<Object> temp = ((List<Object>) current.get("children"));
-
-            for (int i = 0; i < temp.size(); i++) {
-                if (((Map<Object, Object>) temp.get(i)).get("name").equals(in)) {
-                    return ((Map<String, Object>) temp.get(i));
-                }
-            }
-        }
-        return null;
-    }
 }
