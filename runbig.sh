@@ -1,0 +1,1 @@
+java -Xms6g -Xmx6g -jar target/treedata-1.0-SNAPSHOT-shaded.jar

@@ -53,7 +53,7 @@ public class TreeData {
     public void doWork() {
         try {
             //proper usage pattern: java <filename> <delimiter>
-            String inputFile = "/taxonomy_1.csv";
+            String inputFile = "/taxonomy.csv";
             String delimiter = ",";
 
             File f = convertClassPathToFileRef(inputFile);
